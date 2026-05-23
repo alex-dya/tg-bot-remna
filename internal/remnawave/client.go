@@ -63,7 +63,12 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	// Имитируем заголовки от reverse proxy, иначе ProxyCheckMiddleware Remnawave
+	// отбивает запрос с ошибкой "Reverse proxy and HTTPS are required".
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-For", "127.0.0.1")
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
