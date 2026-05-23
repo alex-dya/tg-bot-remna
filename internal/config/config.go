@@ -19,6 +19,10 @@ type Config struct {
 	SubDays      int
 	SubDevices   int
 	SubTrafficGB int64
+
+	// Опциональная ссылка, которая отправляется сотруднику вместе с подпиской —
+	// страница с инструкцией: как установить клиент, как добавить ссылку и т.д.
+	SubscriptionInfoURL string
 }
 
 func Load() (*Config, error) {
@@ -28,9 +32,10 @@ func Load() (*Config, error) {
 		RemnawaveURL:       strings.TrimRight(must("REMNAWAVE_URL"), "/"),
 		RemnawaveToken:     must("REMNAWAVE_TOKEN"),
 		RemnawaveSquadUUID: must("REMNAWAVE_SQUAD_UUID"),
-		SubDays:            getInt("SUB_DAYS", 365),
-		SubDevices:         getInt("SUB_DEVICES", 5),
-		SubTrafficGB:       int64(getInt("SUB_TRAFFIC_GB", 0)),
+		SubDays:             getInt("SUB_DAYS", 365),
+		SubDevices:          getInt("SUB_DEVICES", 5),
+		SubTrafficGB:        int64(getInt("SUB_TRAFFIC_GB", 0)),
+		SubscriptionInfoURL: strings.TrimSpace(os.Getenv("SUBSCRIPTION_INFO_URL")),
 	}
 
 	adminRaw := must("ADMIN_IDS")

@@ -3,7 +3,7 @@ module corp-vpn-bot
 go 1.22
 
 require (
-	github.com/go-telegram/bot v1.17.0
+	github.com/go-telegram/bot v1.19.0
 	github.com/jackc/pgx/v5 v5.7.1
 )
 

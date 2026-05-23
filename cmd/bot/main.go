@@ -61,6 +61,11 @@ func main() {
 	}
 	h.Register(b)
 
+	// Меню команд: для админов — полный набор, для остальных — только /start
+	if err := h.SetupMenus(ctx, b); err != nil {
+		logger.Warn("setup menus", "err", err)
+	}
+
 	logger.Info("bot started", "admins", len(cfg.AdminIDs))
 	b.Start(ctx)
 

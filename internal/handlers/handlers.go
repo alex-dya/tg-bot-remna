@@ -52,6 +52,49 @@ func (h *Handlers) Register(b *bot.Bot) {
 		regexp.MustCompile(`(?i)^/cancel(@\w+)?(\s|$)`), h.OnCancel)
 }
 
+// SetupMenus устанавливает меню команд:
+//   - глобально (default): только /start — это видят обычные пользователи
+//   - для каждого админа индивидуально (scope=chat) — полный набор
+func (h *Handlers) SetupMenus(ctx context.Context, b *bot.Bot) error {
+	userCommands := []models.BotCommand{
+		{Command: "start", Description: "🚀 Получить ссылку на VPN"},
+	}
+	adminCommands := []models.BotCommand{
+		{Command: "start", Description: "🚀 Получить ссылку на VPN"},
+		{Command: "list", Description: "📋 Список сотрудников"},
+		{Command: "add", Description: "➕ Добавить (через пробел)"},
+		{Command: "addlist", Description: "📝 Добавить списком"},
+		{Command: "del", Description: "🗑 Удалить сотрудника"},
+		{Command: "cancel", Description: "↩️ Отменить ввод"},
+		{Command: "help", Description: "❓ Справка"},
+	}
+
+	// Глобальное меню (default) — для всех, у кого нет более узкого scope
+	if _, err := b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
+		Commands: userCommands,
+		Scope:    &models.BotCommandScopeDefault{},
+	}); err != nil {
+		return fmt.Errorf("set default commands: %w", err)
+	}
+
+	// Меню для каждого админа
+	for adminID := range h.cfg.AdminIDs {
+		_, err := b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
+			Commands: adminCommands,
+			Scope: &models.BotCommandScopeChat{
+				ChatID: adminID,
+			},
+		})
+		if err != nil {
+			// Не фатально: возможно, админ ещё не нажимал /start у бота.
+			// Telegram требует, чтобы чат с ботом существовал.
+			h.log.Warn("set admin commands", "admin_id", adminID, "err", err)
+		}
+	}
+
+	return nil
+}
+
 // FallbackHandler — для произвольного текста (нужен для приёма списка после /addlist).
 func (h *Handlers) Fallback(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message == nil || update.Message.From == nil {
@@ -82,20 +125,21 @@ func (h *Handlers) OnStart(ctx context.Context, b *bot.Bot, u *models.Update) {
 
 	uname := normalizeUsername(m.From.Username)
 	if uname == "" {
-		reply(ctx, b, m, "У вашего Telegram-аккаунта не задан username. "+
-			"Установите его в настройках Telegram и попробуйте снова.")
+		reply(ctx, b, m,
+			"⚠️ У вашего Telegram-аккаунта не задан username.\n\n"+
+				"Установите его в настройках Telegram и попробуйте снова.")
 		return
 	}
 
 	emp, err := h.db.GetByUsername(ctx, uname)
 	if err != nil {
 		h.log.Error("get by username", "err", err)
-		reply(ctx, b, m, "Внутренняя ошибка. Попробуйте позже.")
+		reply(ctx, b, m, "⚙️ Внутренняя ошибка. Попробуйте позже.")
 		return
 	}
 	if emp == nil {
 		reply(ctx, b, m,
-			"Пользователь не создан. Обратитесь к администратору.")
+			"🚫 Пользователь не создан. Обратитесь к администратору.")
 		return
 	}
 
@@ -106,11 +150,16 @@ func (h *Handlers) OnStart(ctx context.Context, b *bot.Bot, u *models.Update) {
 		}
 	}
 
-	reply(ctx, b, m, fmt.Sprintf(
-		"Ваш VPN-доступ:\n\n<code>%s</code>\n\n"+
-			"Скопируйте ссылку и вставьте в клиент: v2rayTun, Hiddify, Happ или FoXray.",
-		escapeHTML(emp.SubscriptionURL),
-	))
+	msg := "🔐 <b>Ваш VPN-доступ готов</b>\n\n" +
+		"🔗 <b>Ссылка подписки:</b>\n" +
+		"<code>" + escapeHTML(emp.SubscriptionURL) + "</code>"
+
+	if h.cfg.SubscriptionInfoURL != "" {
+		msg += "\n\n📖 <b>Инструкция по подключению:</b>\n" +
+			escapeHTML(h.cfg.SubscriptionInfoURL)
+	}
+
+	reply(ctx, b, m, msg)
 }
 
 // --- /help ---
@@ -122,19 +171,19 @@ func (h *Handlers) OnHelp(ctx context.Context, b *bot.Bot, u *models.Update) {
 	}
 	if h.cfg.IsAdmin(m.From.ID) {
 		reply(ctx, b, m, strings.Join([]string{
-			"<b>Админ-команды:</b>",
-			"/list — список сотрудников",
-			"/add username [username2 ...] — добавить одного или несколько",
-			"/addlist — добавить списком (по одному на строку)",
-			"/del username — удалить",
-			"/cancel — отменить ожидание ввода",
+			"🛠 <b>Админ-команды:</b>",
+			"📋 /list — список сотрудников",
+			"➕ /add username [username2 ...] — добавить одного или несколько",
+			"📝 /addlist — добавить списком (по одному на строку)",
+			"🗑 /del username — удалить",
+			"↩️ /cancel — отменить ожидание ввода",
 			"",
-			"<b>Для сотрудников:</b>",
-			"/start — получить ссылку подписки",
+			"👥 <b>Для сотрудников:</b>",
+			"🚀 /start — получить ссылку подписки",
 		}, "\n"))
 		return
 	}
-	reply(ctx, b, m, "Команды: /start — получить ссылку на VPN.")
+	reply(ctx, b, m, "🚀 Команды:\n/start — получить ссылку на VPN.")
 }
 
 // --- /list (admin) ---
@@ -148,17 +197,17 @@ func (h *Handlers) OnList(ctx context.Context, b *bot.Bot, u *models.Update) {
 	emps, err := h.db.List(ctx, 200)
 	if err != nil {
 		h.log.Error("list", "err", err)
-		reply(ctx, b, m, "Ошибка чтения базы.")
+		reply(ctx, b, m, "⚙️ Ошибка чтения базы.")
 		return
 	}
 	if len(emps) == 0 {
-		reply(ctx, b, m, "Сотрудников нет.")
+		reply(ctx, b, m, "🤷 Сотрудников нет.")
 		return
 	}
 
 	total, _ := h.db.Count(ctx)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<b>Сотрудники (%d):</b>\n\n", total)
+	fmt.Fprintf(&sb, "👥 <b>Сотрудники (%d):</b>\n\n", total)
 	for _, e := range emps {
 		status := "🕓 не активирован"
 		if e.ActivatedAt != nil {
@@ -201,7 +250,7 @@ func (h *Handlers) OnAdd(ctx context.Context, b *bot.Bot, u *models.Update) {
 
 	args := strings.Fields(extractArgs(m.Text, "/add"))
 	if len(args) == 0 {
-		reply(ctx, b, m, "Использование: <code>/add username [username2 ...]</code>")
+		reply(ctx, b, m, "ℹ️ Использование: <code>/add username [username2 ...]</code>")
 		return
 	}
 
@@ -225,9 +274,9 @@ func (h *Handlers) OnAddList(ctx context.Context, b *bot.Bot, u *models.Update) 
 
 	h.states.set(m.From.ID, stateAwaitList)
 	reply(ctx, b, m,
-		"Пришлите список Telegram username — <b>по одному на строку</b>, без <code>@</code>.\n\n"+
+		"📝 Пришлите список Telegram username — <b>по одному на строку</b>, без <code>@</code>.\n\n"+
 			"Пример:\n<code>ivanov\npetrov\nsidorov</code>\n\n"+
-			"Отмена: /cancel",
+			"↩️ Отмена: /cancel",
 	)
 }
 
@@ -248,7 +297,7 @@ func (h *Handlers) addUsernamesFromText(ctx context.Context, b *bot.Bot, m *mode
 		}
 	}
 	if len(names) == 0 {
-		reply(ctx, b, m, "Пустой список.")
+		reply(ctx, b, m, "⚠️ Пустой список.")
 		return
 	}
 	h.addUsernames(ctx, b, m, names)
@@ -332,7 +381,7 @@ func (h *Handlers) addUsernames(ctx context.Context, b *bot.Bot, m *models.Messa
 		}
 	}
 	if sb.Len() == 0 {
-		sb.WriteString("Ничего не сделано.")
+		sb.WriteString("🤷 Ничего не сделано.")
 	}
 	sendChunked(ctx, b, m.Chat.ID, sb.String())
 }
@@ -346,41 +395,41 @@ func (h *Handlers) OnDel(ctx context.Context, b *bot.Bot, u *models.Update) {
 	}
 	args := strings.Fields(extractArgs(m.Text, "/del"))
 	if len(args) == 0 {
-		reply(ctx, b, m, "Использование: <code>/del username</code>")
+		reply(ctx, b, m, "ℹ️ Использование: <code>/del username</code>")
 		return
 	}
 
 	uname := normalizeUsername(args[0])
 	if !usernameRe.MatchString(uname) {
-		reply(ctx, b, m, "Некорректный username.")
+		reply(ctx, b, m, "⚠️ Некорректный username.")
 		return
 	}
 
 	emp, err := h.db.GetByUsername(ctx, uname)
 	if err != nil {
 		h.log.Error("get for del", "err", err)
-		reply(ctx, b, m, "Ошибка БД.")
+		reply(ctx, b, m, "⚙️ Ошибка БД.")
 		return
 	}
 	if emp == nil {
-		reply(ctx, b, m, "Такого сотрудника нет в базе.")
+		reply(ctx, b, m, "🤷 Такого сотрудника нет в базе.")
 		return
 	}
 
 	if err := h.rw.DeleteUser(ctx, emp.RemnawaveUUID); err != nil {
 		h.log.Error("rw delete", "err", err)
-		reply(ctx, b, m, fmt.Sprintf("Ошибка Remnawave: <code>%s</code>",
+		reply(ctx, b, m, fmt.Sprintf("❌ Ошибка Remnawave: <code>%s</code>",
 			escapeHTML(truncate(err.Error(), 200))))
 		return
 	}
 
 	if _, _, err := h.db.Delete(ctx, uname); err != nil {
 		h.log.Error("db delete", "err", err)
-		reply(ctx, b, m, "Удалено в Remnawave, но не в БД. Сообщите разработчику.")
+		reply(ctx, b, m, "⚠️ Удалено в Remnawave, но не в БД. Сообщите разработчику.")
 		return
 	}
 
-	reply(ctx, b, m, fmt.Sprintf("Сотрудник <code>%s</code> удалён.", escapeHTML(uname)))
+	reply(ctx, b, m, fmt.Sprintf("🗑 Сотрудник <code>%s</code> удалён.", escapeHTML(uname)))
 }
 
 // --- /cancel ---
@@ -392,10 +441,10 @@ func (h *Handlers) OnCancel(ctx context.Context, b *bot.Bot, u *models.Update) {
 	}
 	if _, ok := h.states.get(m.From.ID); ok {
 		h.states.clear(m.From.ID)
-		reply(ctx, b, m, "Окей, отменил.")
+		reply(ctx, b, m, "↩️ Окей, отменил.")
 		return
 	}
-	reply(ctx, b, m, "Нечего отменять.")
+	reply(ctx, b, m, "🤷 Нечего отменять.")
 }
 
 // --- helpers ---
