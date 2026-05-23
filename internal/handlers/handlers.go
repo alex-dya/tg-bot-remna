@@ -151,8 +151,7 @@ func (h *Handlers) OnStart(ctx context.Context, b *bot.Bot, u *models.Update) {
 	}
 
 	msg := "🔐 <b>Ваш VPN-доступ готов</b>\n\n" +
-		"🔗 <b>Ссылка подписки:</b>\n" +
-		"<code>" + escapeHTML(emp.SubscriptionURL) + "</code>"
+		"🔗 <b>Ссылка подписки:</b>\n" + escapeHTML(emp.SubscriptionURL)
 
 	if h.cfg.SubscriptionInfoURL != "" {
 		msg += "\n\n📖 <b>Инструкция по подключению:</b>\n" +
