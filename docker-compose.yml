@@ -1,0 +1,34 @@
+# docker-compose.yml
+#
+# Бот подключается К УЖЕ СУЩЕСТВУЮЩЕЙ docker-сети Remnawave,
+# чтобы ходить в тот же Postgres по имени контейнера.
+#
+# Перед запуском проверь имя сети:
+#   docker network ls | grep remnawave
+# и подставь его в `external.name` ниже.
+#
+# DATABASE_URL должен указывать на service-имя postgres из remnawave-compose
+# (обычно `remnawave-db` или `postgres`). См. .env.example.
+
+services:
+  vpn-bot:
+    build: .
+    image: corp-vpn-bot:latest
+    container_name: corp-vpn-bot
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - remnawave-net
+    # Логи смотреть так: docker logs -f corp-vpn-bot
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  remnawave-net:
+    external: true
+    # ВАЖНО: замени на актуальное имя сети из remnawave-compose.
+    # Скорее всего одно из: remnawave_default, remnawave-network, remnawave_remnawave.
+    name: remnawave_default
